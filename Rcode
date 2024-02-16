@@ -1,0 +1,790 @@
+
+# Loading required packages
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+library(ggpubr)
+library(vegan)
+library(ggfortify)
+library(phyloseq)
+#Loading datasets
+Metadata <- read_excel("All_data.xlsx", sheet = "metadata")
+Bact <- read_excel("All_data.xlsx", sheet = "bact")
+Fungi <- read_excel("All_data.xlsx", sheet = "fungi")
+Prot <- read_excel("All_data.xlsx", sheet = "protists")
+#Taxonomies
+Bact_tax<- read_excel("All_data.xlsx", sheet = "bact_tax")
+Fungi_tax <- read_excel("All_data.xlsx", sheet = "fungi_tax")
+Prot_tax <- read_excel("All_data.xlsx", sheet = "protists_tax")
+#Constructing a phyloseq object for bacteria
+bact_otu_mat <- as.matrix(Bact %>%
+  tibble::column_to_rownames("OTUs")) 
+bact_tax_mat <- as.matrix(Bact_tax %>% 
+  tibble::column_to_rownames("OTUs"))
+metadata_df <- Metadata%>% 
+  tibble::column_to_rownames("samples") 
+OTU = otu_table(bact_otu_mat, taxa_are_rows = TRUE)
+TAX = tax_table(bact_tax_mat)
+samples = sample_data(metadata_df)
+#phyloseq object
+BactPhylo <- phyloseq(OTU, TAX, samples)
+BactPhylo
+#rarefaction
+sample_sums_bact <- sample_sums(BactPhylo)
+rare_samp_bact <- min(sample_sums_bact)
+# Rarefy to lowest sample depth
+BactRar <- rarefy_even_depth(BactPhylo, rare_samp_bact)
+source("phyloseq_object_fungi_and_protists.R")
+#the above R code is similar to that of bacteria
+#It is adjusted for fungi and protists
+BactRar 
+FungiRar 
+ProtistRar
+par(mfrow = c(1, 3)) 
+#bacteria
+raremax <- min(colSums(bact_otu_mat))
+rarecurve(t(bact_otu_mat), step=200, sample=raremax, col="blue", cex=0.6, label = F)
+#fungi
+raremax3 <- min(colSums(Fungi_otu_mat))
+rarecurve(t(Fungi_otu_mat), step=200, sample=raremax3, col="green", cex=0.6, label = F)
+#protists
+raremax4 = min(colSums(Protist_otu_mat))
+rarecurve(t(Protist_otu_mat), step=200, sample=raremax4, col="orange", cex=0.6, label = F)
+#######################################
+#Defining subcommunities
+#bacteria
+otu1 <-as.data.frame(otu_table(BactRar))
+source("subcommunities_classification_bact.R")
+BactSubComm <- subset(new,select=-c((ncol(otu1)-4):ncol(otu1)))
+write.csv(BactSubComm,"All_categories_bact.csv")
+head(BactSubComm)
+#fungi
+otu1 <-as.data.frame(otu_table(FungiPhylo))
+source("subcommunities_classification_fungi.R")
+FungSubComm <- subset(new,select=-c((ncol(otu1)-4):ncol(otu1)))
+write.csv(FungSubComm,"All_categories_fungi.csv")
+head(FungSubComm)
+#protists
+otu1 <-as.data.frame(otu_table(ProtistPhylo))
+source("subcommunities_classification_prot.R")
+ProtSubComm <- subset(new,select=-c((ncol(otu1)-4):ncol(otu1)))
+write.csv(ProtSubComm,"All_categories_fungi.csv")
+head(ProtSubComm)
+
+#####
+#sorting out subcommunities
+BactSubComm <- BactSubComm %>%
+    mutate(Total_reads= rowSums(.[2:46])) 
+bact_categ <- BactSubComm %>%
+  group_by(category) %>% 
+  summarize(
+    Bacteria_reads = sum(Total_reads),
+    Bacteria_OTUs = n())
+
+ProtSubComm <- ProtSubComm %>%
+  mutate(Total_reads= rowSums(.[2:46])) 
+prot_categ <- ProtSubComm %>%
+  group_by(category) %>% 
+  summarize(
+    Protists_reads = sum(Total_reads),
+    Protists_OTUs = n())
+
+FungSubComm <- FungSubComm  %>%
+  mutate(Total_reads= rowSums(.[2:46])) 
+fungi_categ <- FungSubComm  %>%
+  group_by(category) %>% 
+  summarize(
+    Fungi_reads = sum(Total_reads),
+    Fungi_OTUs = n())
+bact_categ$category <- factor(bact_categ$category, levels = c("CRT", "RT", "CRAT", "CAT", "MT"))
+bactBar <- ggplot(bact_categ, aes(x=category, y=Bacteria_OTUs, fill = category)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=Bacteria_OTUs), vjust=-0.5)+theme_bw()+
+  xlab("") +
+  ylab("Number of OTUs")+
+  scale_fill_manual(values = c("#4981BF","#FC4E07","#E69F00","#CC79A7", "#009E73"))+
+  scale_y_continuous(limits=c(0, 8000))
+bactBar
+bact_categ <- bact_categ %>%
+  mutate(percent = Bacteria_reads/sum(Bacteria_reads)*100)
+lab2 <- paste0(bact_categ$category, " (", round(bact_categ$percent, 1), "%)")
+bactPie<-ggdonutchart(bact_categ, "percent", label=lab2,
+                                lab.pos = "in", lab.font = "black",
+                                fill = "category", color = "white",
+                                palette = c("#4981BF","#FC4E07","#E69F00","#CC79A7", "#009E73"))+
+  theme(legend.position="none")
+
+#######################################
+fungi_categ$category <- factor(fungi_categ$category, levels = c("CRT", "RT", "CRAT", "CAT", "MT"))
+fungiBar <- ggplot(fungi_categ, aes(x=category, y=Fungi_OTUs, fill = category)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=Fungi_OTUs), vjust=-0.5)+theme_bw()+
+  xlab("") +
+  ylab("Number of OTUs")+scale_x_discrete(drop = FALSE)+
+  scale_fill_manual(values = c("#4981BF","#FC4E07","#E69F00","#CC79A7", "#009E73"))+
+  scale_y_continuous(limits=c(0, 8000))
+fungiBar
+fungi_categ <- fungi_categ %>%
+  mutate(percent = Fungi_reads/sum(Fungi_reads)*100)
+lab2 <- paste0(fungi_categ$category, " (", round(fungi_categ$percent, 1), "%)")
+fungiPie<-ggdonutchart(fungi_categ, "percent", label=lab2,
+                      lab.pos = "in", lab.font = "black",
+                      fill = "category", color = "white",
+                      palette = c("#4981BF","#FC4E07","#E69F00","#CC79A7", "#009E73"))+
+  theme(legend.position="none")
+######################################################
+library(scales)
+prot_categ$category <- factor(prot_categ$category, levels = c("CRT", "RT", "CRAT", "CAT", "MT"))
+protBar <- ggplot(prot_categ, aes(x=category, y=Protists_OTUs, fill = category)) + 
+  geom_bar(stat="identity") + geom_text(aes(label=Protists_OTUs), vjust=-0.5)+theme_bw()+
+  xlab("") +
+  ylab("Number of OTUs")+
+  scale_fill_manual(values = c("#4981BF","#FC4E07","#E69F00","#CC79A7", "#009E73"))+
+  scale_y_continuous(limits=c(0, 8000))
+protBar
+prot_categ <- prot_categ %>%
+  mutate(percent = Protists_reads/sum(Protists_reads)*100)
+lab2 <- paste0(prot_categ$category, " (", round(prot_categ$percent, 1), "%)")
+protPie<-ggdonutchart(prot_categ, "percent", label=lab2,
+                       lab.pos = "in", lab.font = "black",
+                       fill = "category", color = "white",
+                       palette = c("#4981BF","#FC4E07","#E69F00","#CC79A7", "#009E73"))+
+theme(legend.position="none")
+
+Fig.2<-ggarrange(bactBar, bactPie, 
+                 fungiBar, fungiPie, 
+                 protBar,protPie, ncol = 2, nrow = 3)
+Fig.2
+#############################################################
+#Subset subcommunities in individual datasests
+#Bacteria
+bactCRAT_CAT <- BactSubComm %>%
+  filter(category %in% c("CRAT", "CAT"))
+bactCRT<-BactSubComm %>%
+  filter(category== "CRT")
+bactRT<-BactSubComm %>%
+  filter(category== "RT")
+#Dropping the category and total reads columns
+bactCRAT_CAT <- bactCRAT_CAT %>%
+  select(-category, -Total_reads)
+bactCRT<- bactCRT%>%
+  select(-category, -Total_reads)
+bactRT<- bactRT%>%
+  select(-category, -Total_reads)
+
+#Fungi
+fungiCRAT_CAT <- FungSubComm %>%
+  filter(category %in% c("CRAT", "CAT"))
+fungiCRT<-FungSubComm %>%
+  filter(category== "CRT")
+fungiRT<-FungSubComm %>%
+  filter(category== "RT")
+#Dropping the category and total reads columns
+fungiCRAT_CAT <- fungiCRAT_CAT %>%
+  select(-category, -Total_reads)
+fungiCRT<- fungiCRT%>%
+  select(-category, -Total_reads)
+fungiRT<- fungiRT%>%
+  select(-category, -Total_reads)
+
+#Protists
+protCRAT_CAT <- ProtSubComm %>%
+  filter(category %in% c("CRAT", "CAT"))
+protCRT<-ProtSubComm %>%
+  filter(category== "CRT")
+protRT<-ProtSubComm %>%
+  filter(category== "RT")
+#Dropping the category and total reads columns
+protCRAT_CAT <- protCRAT_CAT %>%
+  select(-category, -Total_reads)
+protCRT<- protCRT%>%
+  select(-category, -Total_reads)
+protRT<- protRT%>%
+  select(-category, -Total_reads)
+#########################################
+#Fig.3 Environmental distance and community similarity
+env<-Metadata%>%
+  select(-group, -Longitude, -Latitude)%>% 
+  tibble::column_to_rownames("samples") 
+#log transformation except pH
+env_log <- env 
+env_log[,!names(env) %in% "pH"] <- lapply(env_log[,!names(env) %in% "pH"], log1p)
+
+#Get environmental eucledian distance
+
+env_eucl<-vegdist(env_log,method= "euclidean")
+#Getting the simirality matrices 
+bactCRAT_CAT_sim<-vegdist(t(bactCRAT_CAT))
+fungiCRAT_CAT_sim<-vegdist(t(fungiCRAT_CAT))
+protCRAT_CAT_sim<-vegdist(t(protCRAT_CAT))
+
+#merging the obtained results
+CRAT_CAT_matrices<-data.frame(bactCRAT_CAT_sim,
+                              fungiCRAT_CAT_sim,
+                              protCRAT_CAT_sim,
+                              env_eucl)
+
+# Convert the problematic columns to numeric
+CRAT_CAT_matrices$bactCRAT_CAT_sim <- as.numeric(CRAT_CAT_matrices$bactCRAT_CAT_sim)
+CRAT_CAT_matrices$fungiCRAT_CAT_sim <- as.numeric(CRAT_CAT_matrices$fungiCRAT_CAT_sim)
+CRAT_CAT_matrices$protCRAT_CAT_sim <- as.numeric(CRAT_CAT_matrices$protCRAT_CAT_sim)
+# Reshape the dataset using pivot_longer
+long_CRAT_CAT_data <- pivot_longer(
+  CRAT_CAT_matrices,
+  cols = starts_with(c("bact", "fung", "prot")),
+  names_to = "community",
+  values_to = "similarity")
+
+long_CRAT_CAT_data$env_eucl <- as.numeric(long_CRAT_CAT_data$env_eucl)
+
+#making the figure
+CRAT_CAT_PLOT<-ggscatter(long_CRAT_CAT_data, x = "env_eucl", y = "similarity",
+                         add = "reg.line",                         
+                         color = "community", 
+                         palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                         alpha=0.5)+
+  stat_cor(aes(color = community), method = "spearman", 
+           label.x = 2)+theme_bw()+
+  labs(x = "Environmental distance",  
+       y = "Bray-Curtis similarity",  
+       title = "CRAT+CAT") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2))+
+  theme(legend.position = "bottom")
+####################################################################################
+#CRT
+bactCRT_sim<-vegdist(t(bactCRT))
+fungiCRT_sim<-vegdist(t(fungiCRT))
+protCRT_sim<-vegdist(t(protCRT))
+#merging the obtained results of CRT
+CRT_matrices<-data.frame(bactCRT_sim,
+                              fungiCRT_sim,
+                              protCRT_sim,
+                              env_eucl)
+
+# Convert the problematic columns to numeric
+CRT_matrices$bactCRT_sim <- as.numeric(CRT_matrices$bactCRT_sim)
+CRT_matrices$fungiCRT_sim <- as.numeric(CRT_matrices$fungiCRT_sim)
+CRT_matrices$protCRT_sim <- as.numeric(CRT_matrices$protCRT_sim)
+# Reshape the dataset using pivot_longer
+long_CRT_data <- pivot_longer(
+  CRT_matrices,
+  cols = starts_with(c("bact", "fung", "prot")),
+  names_to = "community",
+  values_to = "similarity")
+
+long_CRT_data$env_eucl <- as.numeric(long_CRT_data$env_eucl)
+
+#making the figure
+CRT_PLOT<-ggscatter(long_CRT_data, x = "env_eucl", y = "similarity",
+                         add = "reg.line",                         
+                         color = "community", 
+                         palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                         alpha=0.5)+
+  stat_cor(aes(color = community), method = "spearman", 
+           label.x = 2)+theme_bw()+
+  labs(x = "Environmental distance",  
+       y = "Bray-Curtis similarity",  
+       title = "CRT") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2))+
+  theme(legend.position = "bottom")
+############################################
+#RT
+bactRT_sim<-vegdist(t(bactRT))
+fungiRT_sim<-vegdist(t(fungiRT))
+protRT_sim<-vegdist(t(protRT))
+#merging the obtained results of RT
+RT_matrices<-data.frame(bactRT_sim,
+                         fungiRT_sim,
+                         protRT_sim,
+                         env_eucl)
+
+# Convert the problematic columns to numeric
+RT_matrices$bactRT_sim <- as.numeric(RT_matrices$bactRT_sim)
+RT_matrices$fungiRT_sim <- as.numeric(RT_matrices$fungiRT_sim)
+RT_matrices$protRT_sim <- as.numeric(RT_matrices$protRT_sim)
+# Reshape the dataset using pivot_longer
+long_RT_data <- pivot_longer(
+  RT_matrices,
+  cols = starts_with(c("bact", "fung", "prot")),
+  names_to = "community",
+  values_to = "similarity")
+
+long_RT_data$env_eucl <- as.numeric(long_RT_data$env_eucl)
+
+#making the figure
+RT_PLOT<-ggscatter(long_RT_data, x = "env_eucl", y = "similarity",
+                    add = "reg.line",                         
+                    color = "community", 
+                    palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                    alpha=0.5)+
+  stat_cor(aes(color = community), method = "spearman", 
+           label.x = 2)+theme_bw()+
+  labs(x = "Environmental distance",  
+       y = "Bray-Curtis similarity",  
+       title = "RT") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.2))+
+  theme(legend.position = "bottom")
+library(gridExtra)
+combined_plot <- grid.arrange(CRAT_CAT_PLOT, CRT_PLOT,RT_PLOT, ncol = 3)
+####################
+#######################################
+#Neutral community model
+######################################
+#Neutral Community Model
+library(Hmisc)
+library(minpack.lm)
+library(stats4)
+
+spp<-t(bactCRT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+m.ci <- confint(m.fit, 'm', level=0.95)
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+bactNLsBactCRT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+bactNLsBactCRT$col <- 'blue'
+bactNLsBactCRT$col[bactNLsBactCRT$freq <= bactNLsBactCRT$Lower] <- '#0072B2'
+bactNLsBactCRT$col[bactNLsBactCRT$freq >= bactNLsBactCRT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+bactNCM_CRT<-ggplot(bactNLsBactCRT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -5, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Bacteria - CRT")+
+  
+  theme(legend.position = "none")
+#################
+spp<-t(bactCRAT_CAT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+m.ci <- confint(m.fit, 'm', level=0.95)
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+bactNLsBactCRAT_CAT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+bactNLsBactCRAT_CAT$col <- 'blue'
+bactNLsBactCRAT_CAT$col[bactNLsBactCRAT_CAT$freq <= bactNLsBactCRAT_CAT$Lower] <- '#0072B2'
+bactNLsBactCRAT_CAT$col[bactNLsBactCRAT_CAT$freq >= bactNLsBactCRAT_CAT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+bactNCM_CRAT_CAT<-ggplot(bactNLsBactCRAT_CAT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -3.5, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Bacteria - CRAT_CAT")+
+  
+  theme(legend.position = "none")
+###############################
+spp<-t(bactRT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+bactNLsBactRT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+bactNLsBactRT$col <- 'blue'
+bactNLsBactRT$col[bactNLsBactRT$freq <= bactNLsBactRT$Lower] <- '#0072B2'
+bactNLsBactRT$col[bactNLsBactRT$freq >= bactNLsBactRT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+bactNCM_RT<-ggplot(bactNLsBactRT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -3.2, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Bacteria - RT")+
+  
+  theme(legend.position = "none")
+
+########################################################
+#Fungi
+spp<-t(fungiCRT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+m.ci <- confint(m.fit, 'm', level=0.95)
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+fungiNLsfungiCRT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+fungiNLsfungiCRT $col <- 'blue'
+fungiNLsfungiCRT $col[fungiNLsfungiCRT$freq <= fungiNLsfungiCRT$Lower] <- '#0072B2'
+fungiNLsfungiCRT $col[fungiNLsfungiCRT$freq >= fungiNLsfungiCRT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+fungiNCM_CRT<-ggplot(fungiNLsfungiCRT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -5, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Fungi - CRT")+
+  
+  theme(legend.position = "none")
+#################
+spp<-t(fungiCRAT_CAT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+m.ci <- confint(m.fit, 'm', level=0.95)
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+fungiNLsfungiCRAT_CAT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+fungiNLsfungiCRAT_CAT$col <- 'blue'
+fungiNLsfungiCRAT_CAT$col[fungiNLsfungiCRAT_CAT$freq <= fungiNLsfungiCRAT_CAT$Lower] <- '#0072B2'
+fungiNLsfungiCRAT_CAT$col[fungiNLsfungiCRAT_CAT$freq >= fungiNLsfungiCRAT_CAT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+fungiNCM_CRAT_CAT<-ggplot(fungiNLsfungiCRAT_CAT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -3.5, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Fungi - CRAT_CAT")+
+  
+  theme(legend.position = "none")
+###############################
+spp<-t(fungiRT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+fungiNLsfungiRT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+fungiNLsfungiRT$col <- 'blue'
+fungiNLsfungiRT$col[fungiNLsfungiRT$freq <= fungiNLsfungiRT$Lower] <- '#0072B2'
+fungiNLsfungiRT$col[fungiNLsfungiRT$freq >= fungiNLsfungiRT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+fungiNCM_RT<-ggplot(fungiNLsfungiRT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -3.2, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Fungi - RT")+
+  
+  theme(legend.position = "none")
+
+#Protists
+####################
+spp<-t(protCRT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+protNLsprotCRT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+protNLsprotCRT $col <- 'blue'
+protNLsprotCRT $col[protNLsprotCRT$freq <= protNLsprotCRT$Lower] <- '#0072B2'
+protNLsprotCRT $col[protNLsprotCRT$freq >= protNLsprotCRT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+protNCM_CRT<-ggplot(protNLsprotCRT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -5, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Protists- CRT")+
+  
+  theme(legend.position = "none")
+#################
+spp<-t(protCRAT_CAT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+protNLsprotCRAT_CAT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+protNLsprotCRAT_CAT$col <- 'blue'
+protNLsprotCRAT_CAT$col[protNLsprotCRAT_CAT$freq <= protNLsprotCRAT_CAT$Lower] <- '#0072B2'
+protNLsprotCRAT_CAT$col[protNLsprotCRAT_CAT$freq >= protNLsprotCRAT_CAT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+protNCM_CRAT_CAT<-ggplot(protNLsprotCRAT_CAT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -3.5, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Protists - CRAT_CAT")+
+  
+  theme(legend.position = "none")
+###############################
+spp<-t(protRT)
+N <- mean(apply(spp, 1, sum))
+p.m <- apply(spp, 2, mean)
+p.m <- p.m[p.m != 0]
+p <- p.m/N
+spp.bi <- 1*(spp>0)
+freq <- apply(spp.bi, 2, mean)
+freq <- freq[freq != 0]
+C <- merge(p, freq, by=0)
+C <- C[order(C[,2]),]
+C <- as.data.frame(C)
+C.0 <- C[!(apply(C, 1, function(y) any(y == 0))),]
+p <- C.0[,2]
+freq <- C.0[,3]
+names(p) <- C.0[,1]
+names(freq) <- C.0[,1]
+d = 1/N
+##Fit model parameter m 
+m.fit <- nlsLM(freq ~ pbeta(d, N*m*p, N*m*(1 -p), lower.tail=FALSE),start=list(m=0.1))
+freq.pred <- pbeta(d, N*coef(m.fit)*p, N*coef(m.fit)*(1 -p), lower.tail=FALSE)
+pred.ci <- binconf(freq.pred*nrow(spp), nrow(spp), alpha=0.05, method="wilson", return.df=TRUE)
+
+
+protNLsprotRT <-data.frame(p,freq,freq.pred,pred.ci[,2:3])
+protNLsprotRT$col <- 'blue'
+protNLsprotRT$col[protNLsprotRT$freq <= protNLsprotRT$Lower] <- '#0072B2'
+protNLsprotRT$col[protNLsprotRT$freq >= protNLsprotRT$Upper] <- "#56B4E9"
+
+# fetch r-squared and immigration rate
+Rsqr <- 1 - (sum((freq - freq.pred)^2))/(sum((freq - mean(freq))^2))
+Rsqr
+Nm<-N*coef(m.fit)
+Nm
+
+# Plot 
+protNCM_RT<-ggplot(protNLsprotRT, aes(x=log10(p), y=freq)) +
+  geom_point(aes(color=col), size=1, alpha=0.5) + 
+  geom_line(aes(y=freq.pred), color='black', size=1) +
+  geom_line(aes(y=Lower), linetype='dashed', color='black', size=1) +
+  geom_line(aes(y=Upper), linetype='dashed', color='black', size=1) +
+  labs(x = "Mean relative abundance (log10)", 
+       y = "Occurrence frequency")+theme_bw()+
+  annotate("text", x = -2.1, y = 0.85, 
+           label = paste0("R2 = ", round(Rsqr, 3), 
+                          ";\nNm = ", round(Nm, 0)),  vjust = 0.9)+labs(title = "Protists - RT")+
+  
+  theme(legend.position = "none")
+
+
+###Final figure
+##All NCM plots##
+AllNCMPlots<-ggarrange(bactNCM_CRAT_CAT,
+                       bactNCM_CRT,
+                       bactNCM_RT,
+                       
+                       fungiNCM_CRAT_CAT,
+                       fungiNCM_CRT,
+                       fungiNCM_RT,
+                       
+                       protNCM_CRAT_CAT,
+                       protNCM_CRT,
+                       protNCM_RT,
+                       ncol =3, nrow = 3)
+AllNCMPlots
